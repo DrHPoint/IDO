@@ -92,25 +92,28 @@ describe("Hermes", function () {
 
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("0", 18));
 
-      await ido.connect(addr1).join(0, parseUnits("2000", 18));
-
+      await expect(ido.connect(addr1).join(0, parseUnits("2000", 18))).to.be.revertedWith("Amount together with the current user sum exceeds the max allocation");
+      await ido.connect(addr1).join(0, parseUnits("1000", 18));
+      
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("1000", 18));
-
+      
       await ido.connect(addr2).join(0, parseUnits("500", 18));
-      await ido.connect(addr2).join(0, parseUnits("750", 18));
+      await expect(ido.connect(addr2).join(0, parseUnits("750", 18))).to.be.revertedWith("Amount together with the current user sum exceeds the max allocation");
+      const avSum = await ido.connect(addr2).availableSum(0);
+      await ido.connect(addr2).join(0, avSum);
 
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("2000", 18));
 
       await ido.connect(addr3).join(0, parseUnits("1000", 18));
-      await expect(ido.connect(addr3).join(0, parseUnits("1000", 18))).to.be.revertedWith("User have max allocation");
+      await expect(ido.connect(addr3).join(0, parseUnits("1000", 18))).to.be.revertedWith("Amount together with the current user sum exceeds the max allocation");
       
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("3000", 18));
       
       await ido.connect(addr4).join(0, parseUnits("1000", 18));
-
+      
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("4000", 18));
 
-      await expect(ido.connect(owner).join(0, parseUnits("1000", 18))).to.be.revertedWith("Goal amount already collected");
+      await expect(ido.connect(owner).join(0, parseUnits("1000", 18))).to.be.revertedWith("Amount together with the current sum exceeds the max goal");
 
     });
 
@@ -145,15 +148,17 @@ describe("Hermes", function () {
     it("7) 1st round: Claim and after one more hour claim again", async function() {
 
       expect(await reward.connect(owner).balanceOf(addr1.address)).to.equal(parseUnits("0", 18));
-      console.log(0);
+      
       await expect(ido.connect(addr1).claim(0)).to.be.revertedWith("Already nothing to claim");
 
       await ethers.provider.send("evm_increaseTime", [3600 * 24]);
       await ethers.provider.send("evm_mine", []);
 
-      await ido.connect(addr1).claim(0);
+      const claim = await ido.connect(addr1).availableToClaim(0);
+      expect(claim.current).to.equal(parseUnits("250", 18));
+      expect(claim.generally).to.equal(parseUnits("1000", 18));
 
-      console.log(0);
+      await ido.connect(addr1).claim(0);
 
       expect(await reward.connect(owner).balanceOf(addr1.address)).to.equal(parseUnits("250", 18));
 
@@ -178,6 +183,15 @@ describe("Hermes", function () {
 
     });
 
+    it("7.1) 1st round: check getUser", async function() {
+      
+      const userInfo = await ido.connect(addr1).getUser(0, addr1.address);
+      expect(userInfo.allocation).to.equal(parseUnits("1000", 18));
+      expect(userInfo.toClaim).to.equal(parseUnits("1000", 18));
+      expect(userInfo.claimed).to.equal(parseUnits("1000", 18));
+
+    });
+
     it("8) 2nd round: Create Campaign", async function() {
       
       const vestings = [{ percent: ethers.utils.parseEther("0.25"), timestamp: (3600 * 24) }, { percent: ethers.utils.parseEther("0.5"), timestamp: (2 * (3600 * 24)) }, { percent: ethers.utils.parseEther("1"), timestamp: (3 * (3600 * 24)) }];
@@ -193,7 +207,7 @@ describe("Hermes", function () {
 
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("0", 18));
 
-      await ido.connect(addr1).join(1, parseUnits("2000", 18));
+      await ido.connect(addr1).join(1, parseUnits("1000", 18));
 
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("1000", 18));
 
@@ -224,12 +238,14 @@ describe("Hermes", function () {
 
     });
 
-    it("12) 3rd round: Create Campaign", async function() {
+    it("12) 3rd round: Create Campaign and get Campaign Info", async function() {
       
       const vestings = [{ percent: ethers.utils.parseEther("0.25"), timestamp: (3600 * 24) }, { percent: ethers.utils.parseEther("0.5"), timestamp: (2 * (3600 * 24)) }, { percent: ethers.utils.parseEther("1"), timestamp: (3 * (3600 * 24)) }];
       const blockTimestamp = ((await ethers.provider.getBlock(await ethers.provider.getBlockNumber())).timestamp);
       await ido.connect(owner).create({minAllocation: parseUnits("100", 18), maxAllocation: parseUnits("1000", 18), minGoal: parseUnits("2000", 18), maxGoal: parseUnits("4000", 18), total: 0, price: parseUnits("5", 17), startTime: blockTimestamp + 3600, endTime: blockTimestamp + 13 * 3600, acquireAddress: token.address, rewardAddress: reward2.address, acquireDecimals: 18, rewardDecimals: 17, status: 0}, vestings);
     
+      const campaignInfo = await ido.getCampaign(2);
+      console.log(campaignInfo);
     });
 
     it("13) 3rd round: Try to join", async function() {
@@ -243,17 +259,17 @@ describe("Hermes", function () {
 
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("0", 18));
 
-      await ido.connect(addr1).join(2, parseUnits("2000", 18));
+      await ido.connect(addr1).join(2, parseUnits("1000", 18));
 
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("1000", 18));
 
       await ido.connect(addr2).join(2, parseUnits("500", 18));
-      await ido.connect(addr2).join(2, parseUnits("750", 18));
+      await ido.connect(addr2).join(2, parseUnits("500", 18));
 
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("2000", 18));
 
       await ido.connect(addr3).join(2, parseUnits("1000", 18));
-      await expect(ido.connect(addr3).join(2, parseUnits("1000", 18))).to.be.revertedWith("User have max allocation");
+      await expect(ido.connect(addr3).join(2, parseUnits("1000", 18))).to.be.revertedWith("Amount together with the current user sum exceeds the max allocation");
       
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("3000", 18));
       
@@ -261,7 +277,7 @@ describe("Hermes", function () {
 
       expect(await token.connect(owner).balanceOf(ido.address)).to.equal(parseUnits("4000", 18));
 
-      await expect(ido.connect(owner).join(2, parseUnits("1000", 18))).to.be.revertedWith("Goal amount already collected");
+      await expect(ido.connect(owner).join(2, parseUnits("1000", 18))).to.be.revertedWith("Amount together with the current sum exceeds the max goal");
 
     });
 
@@ -296,7 +312,7 @@ describe("Hermes", function () {
     it("17) 3rd round: Claim and after one more hour claim again", async function() {
 
       expect(await reward2.connect(owner).balanceOf(addr1.address)).to.equal(parseUnits("0", 18));
-      console.log(2);
+      
       await expect(ido.connect(addr1).claim(2)).to.be.revertedWith("Already nothing to claim");
 
       await ethers.provider.send("evm_increaseTime", [3600 * 24]);
@@ -304,13 +320,10 @@ describe("Hermes", function () {
 
       await ido.connect(addr1).claim(2);
 
-      console.log(2);
-
       expect(await reward2.connect(owner).balanceOf(addr1.address)).to.equal(parseUnits("5000", 18));
 
       await expect(ido.connect(addr1).claim(2)).to.be.revertedWith("Already nothing to claim");
     
-
       await ethers.provider.send("evm_increaseTime", [3600 * 24]);
       await ethers.provider.send("evm_mine", []);
 
@@ -326,6 +339,15 @@ describe("Hermes", function () {
       expect(await reward2.connect(owner).balanceOf(addr1.address)).to.equal(parseUnits("20000", 18));
 
       await expect(ido.connect(addr1).claim(2)).to.be.revertedWith("All sum already claimed");
+
+    });
+
+    it("17.1) 3rd round: check getUser", async function() {
+      
+      const userInfo = await ido.connect(addr1).getUser(2, addr1.address);
+      expect(userInfo.allocation).to.equal(parseUnits("1000", 18));
+      expect(userInfo.toClaim).to.equal(parseUnits("20000", 18));
+      expect(userInfo.claimed).to.equal(parseUnits("20000", 18));
 
     });
 
